@@ -132,7 +132,10 @@ class UserResponse(BaseModel):
     email: str
     created_at: datetime
 
-
+class UserLogin(BaseModel):
+    username: str
+    password: str
+    
 # Endpoint for user registration
 @app.post("/register/", response_model=UserResponse)
 def register_user(user: UserCreate):
@@ -159,6 +162,17 @@ def register_user(user: UserCreate):
     db.close()
     return user_response  # Return the Pydantic response object
 
+
+# Endpoint for user login
+@app.post("/login/")
+def login_user(user: UserLogin):
+    db = SessionLocal()
+    db_user = db.query(User).filter(User.username == user.username).first()
+    db.close()
+
+    if db_user is None or db_user.password != user.password:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    return {"message": "Login successful"}
     
 @app.get("/")
 def read_root():
