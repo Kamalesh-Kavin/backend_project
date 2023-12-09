@@ -153,15 +153,15 @@ def register_user(user: UserCreate):
     db.refresh(new_user)
     
     user_response = UserResponse(
-        id=new_user.id,
+        id=new_user.user_id,
         username=new_user.username,
         email=new_user.email,
         created_at=new_user.created_at
     )
     
     db.close()
-    return user_response  # Return the Pydantic response object
-
+    #return {"message": "regn successful"}
+    return user_response
 
 # Endpoint for user login
 @app.post("/login/")
