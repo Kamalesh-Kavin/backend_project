@@ -119,6 +119,47 @@ class Recommendation(Base):
 # Create tables in the database
 Base.metadata.create_all(bind=engine)
 
+
+class UserCreate(BaseModel):
+    username: str
+    email: str
+    password: str
+
+# Pydantic model for response
+class UserResponse(BaseModel):
+    id: int
+    username: str
+    email: str
+    created_at: datetime
+
+
+# Endpoint for user registration
+@app.post("/register/", response_model=UserResponse)
+def register_user(user: UserCreate):
+    db = SessionLocal()
+    db_user = db.query(User).filter(User.username == user.username).first()
+    if db_user:
+        raise HTTPException(status_code=400, detail="Username already registered")
+    db_user_email = db.query(User).filter(User.email == user.email).first()
+    if db_user_email:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    new_user = User(**user.dict())
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    
+    user_response = UserResponse(
+        id=new_user.id,
+        username=new_user.username,
+        email=new_user.email,
+        created_at=new_user.created_at
+    )
+    
+    db.close()
+    return user_response  # Return the Pydantic response object
+
+    
 @app.get("/")
 def read_root():
     return {"message": "Welcome to the music app!"}
