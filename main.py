@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 import jwt
 from jwt import PyJWTError
+import pandas as pd
+import io
 
 app = FastAPI()
 
@@ -87,3 +89,39 @@ def curr_user(token: str = Depends(oauth2_scheme)):
         return {"username": username}
     except PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+@app.post("/save-data/")
+async def save_data_from_csv(csv_file: UploadFile = File(...)):
+    contents = await csv_file.read()
+    df = pd.read_csv(io.StringIO(contents.decode('utf-8')))   
+    for row in range(len(df)):
+        genre = (
+            db.query(Genre).filter_by(genre_name=df.iloc[row].to_dict()["genre"]).first()
+        )
+        if not genre:
+            genre = Genre(genre_name=df.iloc[row].to_dict()["genre"])
+            db.add(genre)
+        artist = (
+            db.query(Artist).filter_by(artist_name=df.iloc[row].to_dict()["artist"]).first()
+        )
+        if not artist:
+            artist =Artist(artist_name=df.iloc[row].to_dict()["artist"])
+            db.add(artist)
+        album = (
+            db.query(Album).filter_by(album_title=df.iloc[row].to_dict()["album"]).first()
+        )
+        if not album:
+            album = Album(
+                album_title=df.iloc[row].to_dict()["album"], artist_id=artist.artist_id
+            )
+            db.add(album)
+        db.commit()
+        song = Song(
+            title=df.iloc[row].to_dict()["song_name"],
+            artist_id=artist.artist_id,
+            genre_id=genre.genre_id,
+            album_id=album.album_id,
+        )
+        db.add(song)
+    db.commit()
+    return {"message": "Database populated successfully"}
