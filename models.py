@@ -14,9 +14,7 @@ class User(Base):
 
     playlists = relationship("Playlist", back_populates="user")
     ratings = relationship("Rating", back_populates="user")
-    recommendations_sent = relationship("Recommendation", foreign_keys='[Recommendation.sender_id]', back_populates="sender")
-    recommendations_received = relationship("Recommendation", foreign_keys='[Recommendation.receiver_id]', back_populates="receiver")
-
+    
     def verify_password(self, plain_password):
         return pwd_context.verify(plain_password, self.password)
 
@@ -74,17 +72,17 @@ class Rating(Base):
 
     user = relationship("User", back_populates="ratings")
 
-class Recommendation(Base):
-    __tablename__ = "recommendations"
+# class Recommendation(Base):
+#     __tablename__ = "recommendations"
 
-    recommendation_id = Column(Integer, primary_key=True, index=True,autoincrement=True)
-    sender_id = Column(Integer, ForeignKey('users.user_id'))
-    receiver_id = Column(Integer, ForeignKey('users.user_id'))
-    song_id = Column(Integer, ForeignKey('songs.song_id'))
-    recommendation_type = Column(String)
+#     recommendation_id = Column(Integer, primary_key=True, index=True,autoincrement=True)
+#     sender_id = Column(Integer, ForeignKey('users.user_id'))
+#     receiver_id = Column(Integer, ForeignKey('users.user_id'))
+#     song_id = Column(Integer, ForeignKey('songs.song_id'))
+#     recommendation_type = Column(String)
 
-    sender = relationship("User", foreign_keys=[sender_id], back_populates="recommendations_sent")
-    receiver = relationship("User", foreign_keys=[receiver_id], back_populates="recommendations_received")
+#     sender = relationship("User", foreign_keys=[sender_id], back_populates="recommendations_sent")
+#     receiver = relationship("User", foreign_keys=[receiver_id], back_populates="recommendations_received")
 
 def create_tables(engine):
     Base.metadata.create_all(bind=engine)
