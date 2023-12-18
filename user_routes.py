@@ -89,73 +89,6 @@ def upload_data_into_es():
         es.index(index="users_",id=user.user_id,body=user_model)
     return {"message":"user data stored successfully"}
 
-@user_router.post("/create-playlist/")
-def create_playlist(playlist_data: CreatePlaylistInput,user = Depends(curr_user)):
-    try:
-        playlist = (
-            db.query(Playlist).filter(
-                Playlist.playlist_name == playlist_data.playlist_name,
-                Playlist.user_id == user).first()
-        )
-        result = 1 if playlist_data.playlist_type == "private"  else 0
-        song_names = playlist_data.songs  # Assuming song names are passed as strings
-        songs = db.query(Song).filter(Song.title.in_(song_names)).all()
-        songs_to_add = [song.song_id for song in songs]
-        if  playlist:
-            playlist.playlist_name =  playlist_data.playlist_name
-            playlist.song_ids = songs_to_add
-            playlist.private = result
-        if not playlist:
-            playlist = (
-                Playlist(playlist_name=playlist_data.playlist_name, user_id=user, song_ids=songs_to_add, private=result)
-            )
-            db.add(playlist)
-        db.commit()
-        upload_data_into_es()
-        return {"message": f"Playlist '{playlist_data.playlist_name}' created successfully"}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to create/update the playlist: {str(e)}")
-
-@user_router.post("/create-auto-playlist/")
-def create_auto_playlist(playlist_data: CreateAutoPlaylistInput,user = Depends(curr_user)):
-    try:
-        playlist = (
-            db.query(Playlist).filter(
-                Playlist.playlist_name == playlist_data.playlist_name,
-                Playlist.user_id == user).first()
-        )
-        result = 1 if playlist_data.playlist_type == "private"  else 0
-        query = {
-            "query": {
-                "bool": {
-                    "must": [
-                        {"match": {playlist_data.attr[data]: playlist_data.desired[data]}}
-                            for data in range(len(playlist_data.attr))  
-                    ]
-                }
-            }
-        }
-        search_results = es.search(index="songs_", body=query)
-        retrieved_documents = search_results["hits"]["hits"]
-        song_ids = [doc["_source"]["song_id"] for doc in retrieved_documents if "_source" in doc and "song_id" in doc["_source"]]
-        if  playlist:
-            playlist.playlist_name =  playlist_data.playlist_name
-            playlist.song_ids = song_ids
-            playlist.private = result
-        if not playlist:
-            playlist = (
-                Playlist(playlist_name=playlist_data.playlist_name, user_id=user, song_ids=song_ids, private=result)
-            )
-            db.add(playlist)
-        db.commit()
-        upload_data_into_es()
-        return {"message": f"Playlist '{playlist_data.playlist_name}' created successfully"}
-        
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to create/update the playlist: {str(e)}")
-
 @user_router.get("/user-details/")
 def search_user_details(user_data: userData):
     retrieved_documents=[]
@@ -194,23 +127,18 @@ def recommend_song(user = Depends(curr_user)):
         for song_detail in playlist_info:
             songs_info=song_detail["songs"]
             for song in songs_info:
-            # Extract song details like song_name, artist_name, album_name, etc.
                 songs_in_user_playlists.append({
                     "_index":"songs_",
                     "_id":song["song_id"]
                 })
-    test={
-        "_index":"songs_",
-        "_id":100007
-    }
     mlt_query = {
         "query": {
             "more_like_this": {
-                "fields": ["title", "artist_name", "album_title"],  # Fields to match against
-                "like": test,  # Use the extracted song details
-                "min_term_freq": 1,  # Minimum term frequency
-                "max_query_terms": 3,
-                "min_doc_freq": 1,  # Minimum document frequency
+                "fields": ["title","artist_name","album_title","genre_name"],  
+                "like": songs_in_user_playlists,  
+                "min_term_freq": 1, 
+                "max_query_terms": 4,
+                "min_doc_freq": 1,
             }
         }
     }

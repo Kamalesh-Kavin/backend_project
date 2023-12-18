@@ -13,8 +13,7 @@ SECRET_KEY = "test"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/token")
-
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
 class UserCreate(BaseModel):
     username: str
     password: str
@@ -58,7 +57,6 @@ def login(user_data: UserCreate):
     current_user=curr_user(token)
     return {"token":token}
 
-@auth_router.get("/current-user")
 def curr_user(token: str = Depends(oauth2_scheme)):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -69,4 +67,5 @@ def curr_user(token: str = Depends(oauth2_scheme)):
         return user_id.user_id
     except PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    
     
