@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from connection import db
 from models import User,pwd_context
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordBearer
 import jwt
 from jwt import PyJWTError
 from datetime import datetime, timedelta
@@ -11,7 +11,7 @@ auth_router = APIRouter()
 
 SECRET_KEY = "test"
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 50
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
 class UserLogin(BaseModel):
@@ -32,7 +32,6 @@ def register_user(user: UserCreate):
     new_user = User(username=user.username, password=hashed_password,email=user.email)
     db.add(new_user)
     db.commit()
-    db.refresh(new_user)
     return {"message":"regn successful"}
 
 # Function to create access token using JWT
@@ -54,10 +53,8 @@ def login(user_data: UserLogin):
     user = authenticate_user(user_data.username, user_data.password)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     token = create_access_token(data={"sub": user.username}, expires_delta=access_token_expires)
-    current_user=curr_user(token)
     return {"token":token}
 
 def curr_user(token: str = Depends(oauth2_scheme)):

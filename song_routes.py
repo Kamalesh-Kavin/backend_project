@@ -5,7 +5,7 @@ from models import Genre, Artist, Album, Song, Rating
 from connection import db, es
 from pydantic import BaseModel
 from authentication import curr_user
-from typing import List
+from typing import Optional
 from sqlalchemy import func
 
 song_router = APIRouter()
@@ -119,7 +119,6 @@ async def save_data_from_csv(csv_file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save data from CSV: {str(e)}")
     
-    
 @song_router.post("/rate-song/")
 def rate_song(song_data: RateSongInput,user = Depends(curr_user)):
     try:
@@ -141,7 +140,7 @@ def rate_song(song_data: RateSongInput,user = Depends(curr_user)):
         raise HTTPException(status_code=500, detail=f"Failed to rate the song: {str(e)}")
 
 @song_router.get("/search-song/")
-def search_song(song_data: searchSongs):
+def search_song(song_data: searchSongs,field: Optional[str] = None, value: Optional[str] = None):
     query = {
         "query": {
             "bool": {
@@ -155,5 +154,9 @@ def search_song(song_data: searchSongs):
     retrieved_documents = search_results["hits"]["hits"]
     res=[]
     for doc in retrieved_documents:
-        res.append(doc["_source"])
+        if field is not None and value is not None:
+            if doc["_source"][field]==value:
+                res.append(doc["_source"])
+        else:
+            res.append(doc["_source"])
     return res

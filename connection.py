@@ -13,4 +13,8 @@ db = SessionLocal()
 ELASTICSEARCH_URL = "https://localhost:9200"
 es = Elasticsearch(hosts=ELASTICSEARCH_URL,basic_auth=("elastic", "1_W28jlMre-sx005bcoB"), verify_certs=False)
 
-create_tables(engine)
+def create_index():
+    INDEX_NAMES = ["users_","songs_"]
+    for i in INDEX_NAMES:
+        if not es.indices.exists(index=i):
+                es.indices.create(index=i)

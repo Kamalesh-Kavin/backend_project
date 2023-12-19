@@ -1,51 +1,52 @@
-from fastapi import APIRouter, Depends, HTTPException
-from typing import List, Union, Optional
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends
+from typing import Optional
 from authentication import curr_user
 from connection import db, es
-from models import Playlist, Song, User, Album, Artist, Genre
+from models import Song, User, Album, Artist, Genre
 from sqlalchemy.orm import joinedload
 
 user_router = APIRouter()
+  
+def update_user_in_es(user_id):
+    user_details = db.query(User).filter(User.user_id==user_id).options(
+        joinedload(User.playlists)  # Use joinedload to eagerly load playlists
+    ).all()
+    user_details = user_details[0]
+    playlists_data = []
+    for playlist in user_details.playlists:
+        song_details = []
+        for song_id in playlist.song_ids:
+            song = db.query(Song).filter_by(song_id=song_id).first()
+            if song:
+                artist = db.query(Artist).filter_by(artist_id=song.artist_id).first()
+                album = db.query(Album).filter_by(album_id=song.album_id).first()
+                genre = db.query(Genre).filter_by(genre_id=song.genre_id).first()
+                if artist and album and genre:
+                    song_model = {
+                        "song_id": song.song_id,
+                        "song_name": song.title,
+                        "genre_name": genre.genre_name,
+                        "artist_name": artist.artist_name,
+                        "album_title": album.album_title
+                    }
+                    song_details.append(song_model)
+        playlist_model = {
+            "playlist_id": playlist.playlist_id,
+            "playlist_name": playlist.playlist_name,
+            "songs": song_details
+        }
+        playlists_data.append(playlist_model)
+        
+    user_model = {
+        "username": user_details.username,
+        "password": user_details.password,
+        "email": user_details.email,
+        "user_id": user_details.user_id,
+        "playlists": playlists_data
+    }
+    es.index(index="users_",id=user_details.user_id,body=user_model)
+    return {"message":"user data stored successfully"}
 
-class PlaylistSongDetails(BaseModel):
-    song_id: int
-    song_name: str
-    genre_name: str
-    artist_name: str
-    album_title: str
-
-class PlaylistDetails(BaseModel):
-    playlist_id: int
-    playlist_name: str
-    private: int
-    songs: List[PlaylistSongDetails]
-
-class UserDetails(BaseModel):
-    username: str
-    password: str
-    user_id: int
-    playlists: List[PlaylistDetails]
-
-class userSchema(BaseModel):
-    username: str
-    password: str
-    
-class CreatePlaylistInput(BaseModel):
-    playlist_name: str
-    songs: List[str] 
-    playlist_type:str
-    
-class CreateAutoPlaylistInput(BaseModel):
-    playlist_name: str
-    playlist_type:str
-    attr: List[str]  
-    desired: List[str]
-
-class userData(BaseModel):
-    attr: List[str]  
-    desired: Union[List[str], List[int]]
-    
 def upload_data_into_es():
     user_details = db.query(User).options(
         joinedload(User.playlists)  # Use joinedload to eagerly load playlists
@@ -81,6 +82,7 @@ def upload_data_into_es():
         user_model = {
             "username": user.username,
             "password": user.password,
+            "email": user.email,
             "user_id": user.user_id,
             "playlists": playlists_data
         }
@@ -100,10 +102,6 @@ def search_user_details(user = Depends(curr_user)):
     }
     retrieved_doc=es.search(index="users_", body=query)["hits"]["hits"][0]["_source"]
     return retrieved_doc
-
-class FilterData(BaseModel):
-    filter_attr: List[str]
-    filter_val: List[str]
     
 @user_router.get("/recommend-songs/")
 def recommend_song(user = Depends(curr_user), field: Optional[str] = None, value: Optional[str] = None):
@@ -185,7 +183,7 @@ def recommend_song(user = Depends(curr_user), field: Optional[str] = None, value
                             recommended_songs.append(curr_artist[i]["_source"])
         return recommended_songs
     
-    else:
+    else: #for users who have no pre-existing playlists - general songs
         aggregation_query = {
             "size": 0, 
             "aggs": {
@@ -225,33 +223,32 @@ def recommend_song(user = Depends(curr_user), field: Optional[str] = None, value
             "size": 30, 
             "query": {
                 "function_score": {
-                "functions": [
-                    {
-                    "random_score": {} 
-                    }
-                ],
-                "query": {
-                    "bool": {
-                    "should": [
+                    "functions": [
                         {
-                        "terms": {
-                            "genre_name.keyword": genre_names
-                        }
-                        },
-                        {
-                        "terms": {
-                            "artist_name.keyword": artist_names
-                        }
+                        "random_score": {} 
                         }
                     ],
-                    "minimum_should_match": 2 
-                    }
-                },
-                "boost_mode": "replace"
+                    "query": {
+                        "bool": {
+                            "should": [
+                                {
+                                    "terms": {
+                                        "genre_name.keyword": genre_names
+                                    }
+                                },
+                                {
+                                    "terms": {
+                                        "artist_name.keyword": artist_names
+                                    }
+                                }
+                            ],
+                            "minimum_should_match": 2 
+                        }
+                    },
+                    "boost_mode": "replace"
                 }
             }
-            }
-
+        }
         search_res = es.search(index="songs_", body=query)
         recommended_songs = search_res["hits"]["hits"]
         recommend_song = []
