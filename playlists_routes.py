@@ -5,33 +5,34 @@ from authentication import curr_user
 from pydantic import BaseModel
 from typing import List
 from user_routes import upload_data_into_es
+from enum import Enum
 
 playlist_router = APIRouter()
 
 class CreatePlaylistInput(BaseModel):
     playlist_name: str
-    songs: List[str] 
-    playlist_type:str
-    
+    songs: List[int] 
 class CreateAutoPlaylistInput(BaseModel):
     playlist_name: str
-    playlist_type:str
     attr: List[str]  
     desired: List[str]
-    
 class AutoPlaylistInput(BaseModel):
     playlist_name: str
-    playlist_type:str
     artist: List[str]  
     genre: List[str]
+    size: int
+    
+class ActionType(str, Enum):
+    delete = 'delete'
+    add = 'add'
     
 class EditPlaylistInput(BaseModel):
-    playlist_name: str
-    action: str
-    songs_to_modify: List[str]
+    playlist_id: int
+    action: ActionType
+    songs_to_modify: List[int]
     
 class DeletePlaylist(BaseModel):
-    playlist_name: str
+    playlist_id: int
     
 @playlist_router.post("/create-playlist/")
 def create_playlist(playlist_data: CreatePlaylistInput,user = Depends(curr_user)):
@@ -41,17 +42,12 @@ def create_playlist(playlist_data: CreatePlaylistInput,user = Depends(curr_user)
                 Playlist.playlist_name == playlist_data.playlist_name,
                 Playlist.user_id == user).first()
         )
-        result = 1 if playlist_data.playlist_type == "private"  else 0
-        song_names = playlist_data.songs  
-        songs = db.query(Song).filter(Song.title.in_(song_names)).all()
-        songs_to_add = [song.song_id for song in songs]
         if  playlist:
             playlist.playlist_name =  playlist_data.playlist_name
-            playlist.song_ids = songs_to_add
-            playlist.private = result
+            playlist.song_ids = playlist_data.songs
         if not playlist:
             playlist = (
-                Playlist(playlist_name=playlist_data.playlist_name, user_id=user, song_ids=songs_to_add, private=result)
+                Playlist(playlist_name=playlist_data.playlist_name, user_id=user, song_ids=playlist_data.songs)
             )
             db.add(playlist)
         db.commit()
@@ -69,7 +65,6 @@ def create_auto_playlist(playlist_data: AutoPlaylistInput,user = Depends(curr_us
                 Playlist.playlist_name == playlist_data.playlist_name,
                 Playlist.user_id == user).first()
         )
-        result = 1 if playlist_data.playlist_type == "private"  else 0
         pair=[]
         song_ids=[]
         for i in range(len(playlist_data.artist)):
@@ -77,6 +72,8 @@ def create_auto_playlist(playlist_data: AutoPlaylistInput,user = Depends(curr_us
                 pair.append((playlist_data.artist[i],playlist_data.genre[j]))
         for i in range(len(pair)):
             query = {
+                "_source":"song_id",
+                "size":playlist_data.size,
                 "query": {
                     "bool": {
                         "must": [{"match": {"artist_name": pair[i][0]}}, 
@@ -90,13 +87,13 @@ def create_auto_playlist(playlist_data: AutoPlaylistInput,user = Depends(curr_us
                 if "_source" in doc and "song_id" in doc["_source"]:
                     if doc["_source"]["song_id"] not in song_ids:
                         song_ids.append(doc["_source"]["song_id"])
+            return song_ids
         if  playlist:
             playlist.playlist_name =  playlist_data.playlist_name
             playlist.song_ids = song_ids
-            playlist.private = result
         if not playlist:
             playlist = (
-                Playlist(playlist_name=playlist_data.playlist_name, user_id=user, song_ids=song_ids, private=result)
+                Playlist(playlist_name=playlist_data.playlist_name, user_id=user, song_ids=song_ids)
             )
             db.add(playlist)
         db.commit()
@@ -153,54 +150,48 @@ def edit_playlist(playlist_data: EditPlaylistInput,user = Depends(curr_user)):
     try:
         playlist = (
             db.query(Playlist).filter(
-                Playlist.playlist_name == playlist_data.playlist_name,
+                Playlist.playlist_id == playlist_data.playlist_id,
                 Playlist.user_id == user).first()
         )
         if playlist:
-            act=1 if playlist_data.action == "add"  else 0
-            if act==1:
-                song_names = playlist_data.songs_to_modify 
-                songs = db.query(Song).filter(Song.title.in_(song_names)).all()
+            if playlist_data.action == "add":
                 curr_songs=playlist.song_ids.copy()
-                for song in songs:
-                    if song.song_id not in curr_songs:
-                        curr_songs.append(song.song_id)
-                playlist.song_ids = curr_songs
-                
+                curr_songs.extend(playlist_data.songs_to_modify)
+                curr_unique_songs=set(curr_songs)
+                playlist.song_ids = list(curr_unique_songs)
             else:
-                song_names = playlist_data.songs_to_modify  
-                songs = db.query(Song).filter(Song.title.in_(song_names)).all()
                 curr_songs=playlist.song_ids.copy()
-                for song in songs:
-                    if song.song_id in curr_songs:
-                        curr_songs.remove(song.song_id)
+                for song in playlist_data.songs_to_modify:
+                    if song in curr_songs:
+                        curr_songs.remove(song)
                     else:
                         return {"message":f"song {song.title} does not exist in the playlist"}
                 playlist.song_ids = curr_songs
             db.commit()
             upload_data_into_es()
-            return {"message":f"Playlist '{playlist_data.playlist_name} edited successfully"}
+            return {"message":f"Playlist '{playlist.playlist_name} edited successfully"}
         else:
-            return {"message":f"Playlist '{playlist_data.playlist_name} does not exist"}
+            return {"message":f"Playlist '{playlist.playlist_name} does not exist"}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to create/update the playlist: {str(e)}")
 
 @playlist_router.delete("/delete-playlist/")
-def edit_playlist(playlist_data: DeletePlaylist,user = Depends(curr_user)):
+def del_playlist(playlist_data: DeletePlaylist,user = Depends(curr_user)):
     try:
         playlist = (
             db.query(Playlist).filter(
-                Playlist.playlist_name == playlist_data.playlist_name,
+                Playlist.playlist_name == playlist_data.playlist_id,
                 Playlist.user_id == user).first()
         )
         if playlist:
+            playlist_name = playlist.playlist_name
             db.delete(playlist)
             db.commit()
             upload_data_into_es()
-            return {"message":f"playlist {playlist_data.playlist_name} deleted successfully"}
+            return {"message":f"{playlist_name} deleted successfully"}
         else:
-            return {"message":f"playlist {playlist_data.playlist_name} doesn't exist"} 
+            return {"message":f"playlist {playlist_name} doesn't exist"} 
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to create/update the playlist: {str(e)}")

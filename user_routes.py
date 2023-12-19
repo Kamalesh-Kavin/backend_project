@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from typing import List, Union
+from typing import List, Union, Optional
 from pydantic import BaseModel
 from authentication import curr_user
 from connection import db, es
@@ -74,7 +74,6 @@ def upload_data_into_es():
             playlist_model = {
                 "playlist_id": playlist.playlist_id,
                 "playlist_name": playlist.playlist_name,
-                "private": playlist.private,
                 "songs": song_details
             }
             playlists_data.append(playlist_model)
@@ -90,61 +89,173 @@ def upload_data_into_es():
     return {"message":"user data stored successfully"}
 
 @user_router.get("/user-details/")
-def search_user_details(user_data: userData):
-    retrieved_documents=[]
-    playlists = ["playlist", "private"]
-    songs = ["song", "genre", "artist", "album"]
-    for i,data in enumerate(user_data.attr):
-        playlist = [prefix for prefix in playlists if data.startswith(prefix)]
-        song = [prefix for prefix in songs if data.startswith(prefix)]
-        if song:
-            data = "playlists.songs."+data
-        elif playlist:
-            data = "playlists."+data
-        query = {
-            "query": {
-                "match": {
-                    data: user_data.desired[i]
-                }
+def search_user_details(user = Depends(curr_user)):
+    upload_data_into_es()
+    query = {
+        "query": {
+            "match": {
+                "user_id": user
             }
         }
-        search_results = es.search(index="users_", body=query)
-        retrieved_documents.append(search_results["hits"]["hits"])
-    return retrieved_documents
+    }
+    retrieved_doc=es.search(index="users_", body=query)["hits"]["hits"][0]["_source"]
+    return retrieved_doc
 
+class FilterData(BaseModel):
+    filter_attr: List[str]
+    filter_val: List[str]
+    
 @user_router.get("/recommend-songs/")
-def recommend_song(user = Depends(curr_user)):
+def recommend_song(user = Depends(curr_user), field: Optional[str] = None, value: Optional[str] = None):
     user_playlists_query = {
         "query": {
             "match": {"user_id": user}  
             }
-        }
+    }
+    recommended_songs = []
     user_playlists = es.search(index="users_", body=user_playlists_query)["hits"]["hits"]
-  
-    songs_in_user_playlists = []
-    for playlist in user_playlists:
-        playlist_info = playlist["_source"]["playlists"]
-        for song_detail in playlist_info:
+    if len(user_playlists)!=0:
+        user_playlists = user_playlists[0]["_source"]["playlists"]
+        songs_in_user_playlists = []
+        artist_names=[]
+        for song_detail in user_playlists:
             songs_info=song_detail["songs"]
             for song in songs_info:
-                songs_in_user_playlists.append({
-                    "_index":"songs_",
-                    "_id":song["song_id"]
-                })
-    mlt_query = {
-        "query": {
-            "more_like_this": {
-                "fields": ["title","artist_name","album_title","genre_name"],  
-                "like": songs_in_user_playlists,  
-                "min_term_freq": 1, 
-                "max_query_terms": 4,
-                "min_doc_freq": 1,
+                if field is not None and value is not None:
+                    if song[field]==value:
+                        songs_in_user_playlists.append({
+                            "_id":song["song_id"]
+                        })
+                else:
+                    songs_in_user_playlists.append({
+                            "_id":song["song_id"]
+                        })
+                if song["artist_name"] not in artist_names:
+                    artist_names.append(song["artist_name"]) 
+        if len(songs_in_user_playlists)==0:
+            return {"message":"no songs to recommend from"}
+        mlt_query= {
+            "size": 0,
+            "query": {
+                "bool": {
+                    "must": {
+                        "more_like_this": {
+                            "fields": ["genre_name", "artist_name", "album_name"],
+                            "like": songs_in_user_playlists,
+                            "min_term_freq": 1,
+                            "max_query_terms": 1,
+                            "min_doc_freq": 1
+                        }
+                    }
+                }
+            },
+            "aggs": {
+                "specific_artists": {
+                    "filters": {
+                        "filters": {}
+                    },
+                    "aggs": {
+                        "top_songs": {
+                            "top_hits": {
+                                "size": 5,
+                                "_source": {
+                                    "includes": ["title", "song_id", "genre_name", "artist_name", "album_title", "rating"]
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
-    }
-    mlt_search_results = es.search(index="songs_", body=mlt_query)
-    recommended_songs = mlt_search_results["hits"]["hits"]
-    recommend_song = []
-    for song in recommended_songs:
-        recommend_song.append(song["_source"])
-    return recommend_song
+        filters = mlt_query["aggs"]["specific_artists"]["filters"]["filters"]
+        for index, artist in enumerate(artist_names, start=1):
+            filters[f"artist_{index}"] = {"term": {"artist_name.keyword": artist}}
+            print(index, artist)
+        result = es.search(index='songs_', body=mlt_query)
+        artist_data = result["aggregations"]["specific_artists"]["buckets"]
+        for artist in artist_data:
+            curr_artist = artist_data[artist]["top_songs"]["hits"]["hits"]
+            for i in range(len(curr_artist)):
+                if field is not None and value is not None:
+                    if curr_artist[i]["_source"][field]==value:
+                        if curr_artist[i]["_source"] not in recommended_songs:
+                            recommended_songs.append(curr_artist[i]["_source"])
+                else:
+                    if curr_artist[i]["_source"] not in recommended_songs:
+                            recommended_songs.append(curr_artist[i]["_source"])
+        return recommended_songs
+    
+    else:
+        aggregation_query = {
+            "size": 0, 
+            "aggs": {
+                "genres_count": {
+                    "terms": {
+                        "field": "genre_name.keyword", 
+                        "size": 30 , #max number of genres available
+                        "min_doc_count": 501 #min no. of songs required
+                    }
+                }
+            }
+        }
+        genre_names=[]
+        result = es.search(index="songs_", body=aggregation_query)
+        if result.get("aggregations") and result["aggregations"].get("genres_count"):
+            genre_buckets = result["aggregations"]["genres_count"]["buckets"]
+            for bucket in genre_buckets:
+                #genre_name = bucket["key"] it has genre_names
+                genre_names.append(bucket["key"])
+                #song_count = bucket["doc_count"] it has song_count
+                
+        rating_query = {
+            "query": {
+                "range": {
+                    "rating": {
+                        "gt": 3  
+                    }
+                }
+            }
+        }
+        artist_names=[]
+        results = es.search(index="songs_", body=rating_query)
+        if results.get("hits") and results["hits"].get("hits"):
+            for hit in results["hits"]["hits"]:
+                artist_names.append(hit["_source"]["artist_name"])
+        query={
+            "size": 30, 
+            "query": {
+                "function_score": {
+                "functions": [
+                    {
+                    "random_score": {} 
+                    }
+                ],
+                "query": {
+                    "bool": {
+                    "should": [
+                        {
+                        "terms": {
+                            "genre_name.keyword": genre_names
+                        }
+                        },
+                        {
+                        "terms": {
+                            "artist_name.keyword": artist_names
+                        }
+                        }
+                    ],
+                    "minimum_should_match": 2 
+                    }
+                },
+                "boost_mode": "replace"
+                }
+            }
+            }
+
+        search_res = es.search(index="songs_", body=query)
+        recommended_songs = search_res["hits"]["hits"]
+        recommend_song = []
+        for song in recommended_songs:
+            recommend_song.append(song["_source"])
+        return recommend_song
+    

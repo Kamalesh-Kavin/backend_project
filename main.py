@@ -1,7 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Depends
-from models import User,Song,Artist,Album,Genre,Playlist,Rating,create_tables,pwd_context
-from pydantic import BaseModel
-from connection import db
+from fastapi import FastAPI
 from authentication import auth_router
 from song_routes import song_router
 from user_routes import user_router

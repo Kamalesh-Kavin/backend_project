@@ -14,17 +14,22 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
 class UserCreate(BaseModel):
     username: str
     password: str
+    email: str
     
 @auth_router.post("/register/")
 def register_user(user: UserCreate):
     hashed_password = pwd_context.hash(user.password)
-    db_user = db.query(User).filter(User.username == user.username).first()
+    db_user = db.query(User).filter(User.username == user.username,User.email == user.email).first()
     if db_user:
         raise HTTPException(status_code=400, detail="Username already registered")
-    new_user = User(username=user.username, password=hashed_password)
+    new_user = User(username=user.username, password=hashed_password,email=user.email)
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
@@ -44,10 +49,8 @@ def authenticate_user(username: str, password: str):
         return None
     return user
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
-@auth_router.get("/login")
-def login(user_data: UserCreate):
+@auth_router.post("/login")
+def login(user_data: UserLogin):
     user = authenticate_user(user_data.username, user_data.password)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")

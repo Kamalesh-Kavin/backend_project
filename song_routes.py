@@ -6,9 +6,32 @@ from connection import db, es
 from pydantic import BaseModel
 from authentication import curr_user
 from typing import List
+from sqlalchemy import func
+
 song_router = APIRouter()
 
-# @song_router.get("/upload-songs")
+class RateSongInput(BaseModel):
+    song_id: int
+    rating: float
+    
+class searchSongs(BaseModel):
+    song_name: str
+    
+def update_song_in_es(song_id):
+    result = es.get(index="songs_",id=song_id)
+    data = result["_source"]
+    average_rating = (
+        db.query(func.avg(Rating.rating))
+        .filter(Rating.song_id == data["song_id"])
+        .scalar() 
+    )
+    upd_doc = {
+        "doc":{
+            "rating":average_rating
+        }
+    }
+    es.update(index="songs_",id=song_id ,body=upd_doc)
+
 def upload_data_into_es():
     songs_details = (
         db.query(
@@ -16,11 +39,20 @@ def upload_data_into_es():
             Song.title,
             Artist.artist_name,
             Album.album_title,
-            Genre.genre_name
+            Genre.genre_name,
+            func.coalesce(func.avg(Rating.rating), 0).label('rating')  # Replace None with 0
         )
         .join(Artist, Artist.artist_id == Song.artist_id)
         .join(Album, Album.album_id == Song.album_id)
         .join(Genre, Genre.genre_id == Song.genre_id)
+        .outerjoin(Rating, Rating.song_id == Song.song_id)  # Perform a LEFT OUTER JOIN to include songs without ratings
+        .group_by(
+            Song.song_id,
+            Song.title,
+            Artist.artist_name,
+            Album.album_title,
+            Genre.genre_name
+        )  
         .all()
     )
     for song in songs_details:
@@ -29,7 +61,8 @@ def upload_data_into_es():
             "title": song.title,
             "artist_name": song.artist_name,
             "album_title": song.album_title,
-            "genre_name": song.genre_name
+            "genre_name": song.genre_name,
+            "rating":song.rating
         }
         es.index(index="songs_", id=song.song_id,body=song_data)
     return {"message":"song data stored successfully"}
@@ -86,30 +119,22 @@ async def save_data_from_csv(csv_file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save data from CSV: {str(e)}")
     
-class RateSongInput(BaseModel):
-    song_name: str
-    rating: int
-    
-class searchSongs(BaseModel):
-    attr: List[str]
-    desired: List[str]
     
 @song_router.post("/rate-song/")
 def rate_song(song_data: RateSongInput,user = Depends(curr_user)):
     try:
-        song = db.query(Song).filter(Song.title == song_data.song_name).first()
-        if not song:
-            raise HTTPException(status_code=404, detail="Song not found")
         rating = (
             db.query(Rating).filter(
             Rating.user_id == user,
-            Rating.song_id == song.song_id).first()
+            Rating.song_id == song_data.song_id).first()
         )
-        rating.rating = song_data.rating
+        if rating:
+            rating.rating = song_data.rating
         if not rating:
-            rating = Rating(user_id=user, song_id=song.song_id, rating=song_data.rating)
+            rating = Rating(user_id=user, song_id=song_data.song_id, rating=song_data.rating)
             db.add(rating)
         db.commit()
+        update_song_in_es(song_data.song_id)
         return {"message":"rating done successfully"}
     except Exception as e:
         db.rollback()
@@ -121,12 +146,14 @@ def search_song(song_data: searchSongs):
         "query": {
             "bool": {
                 "must": [
-                    {"match": {song_data.attr[data]: song_data.desired[data]}}
-                        for data in range(len(song_data.attr))  
+                    {"match": {"title":song_data.song_name}}
                     ]
                 }
             }
         }
     search_results = es.search(index="songs_", body=query)
     retrieved_documents = search_results["hits"]["hits"]
-    return retrieved_documents
+    res=[]
+    for doc in retrieved_documents:
+        res.append(doc["_source"])
+    return res

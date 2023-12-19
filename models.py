@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, DateTime, text, Table, ARRAY
+from sqlalchemy import create_engine, Column, Integer, Float, String, ForeignKey, DateTime, text, Table, ARRAY
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from passlib.context import CryptContext
@@ -11,7 +11,8 @@ class User(Base):
     user_id = Column(Integer, primary_key=True, index=True,autoincrement=True)
     username = Column(String, unique=True, index=True)
     password = Column(String)
-
+    email = Column(String, unique=True, index=True)
+    
     playlists = relationship("Playlist", back_populates="user")
     ratings = relationship("Rating", back_populates="user")
     
@@ -58,7 +59,6 @@ class Playlist(Base):
     playlist_name = Column(String, index=True)
     user_id = Column(Integer, ForeignKey('users.user_id'))
     song_ids = Column(ARRAY(Integer))
-    private = Column(Integer)
 
     user = relationship("User", back_populates="playlists")
 
@@ -68,7 +68,7 @@ class Rating(Base):
     rating_id = Column(Integer, primary_key=True, index=True,autoincrement=True)
     user_id = Column(Integer, ForeignKey('users.user_id'))
     song_id = Column(Integer, ForeignKey('songs.song_id'))
-    rating = Column(Integer)  # Rating on a scale of 1 to 5
+    rating = Column(Float)  
 
     user = relationship("User", back_populates="ratings")
 
@@ -78,8 +78,8 @@ class Rating(Base):
 #     recommendation_id = Column(Integer, primary_key=True, index=True,autoincrement=True)
 #     sender_id = Column(Integer, ForeignKey('users.user_id'))
 #     receiver_id = Column(Integer, ForeignKey('users.user_id'))
-#     song_id = Column(Integer, ForeignKey('songs.song_id'))
 #     recommendation_type = Column(String)
+#     recommendation_type_id = Column(Integer)
 
 #     sender = relationship("User", foreign_keys=[sender_id], back_populates="recommendations_sent")
 #     receiver = relationship("User", foreign_keys=[receiver_id], back_populates="recommendations_received")
