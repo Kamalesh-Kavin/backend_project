@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, Float, String, ForeignKey, DateTime, text, Table, ARRAY
+from sqlalchemy import create_engine, Column, Integer, Float, String, ForeignKey, ARRAY
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from passlib.context import CryptContext
@@ -72,17 +72,14 @@ class Rating(Base):
 
     user = relationship("User", back_populates="ratings")
 
-# class Recommendation(Base):
-#     __tablename__ = "recommendations"
+class Recommendation(Base):
+    __tablename__ = "recommendations"
 
-#     recommendation_id = Column(Integer, primary_key=True, index=True,autoincrement=True)
-#     sender_id = Column(Integer, ForeignKey('users.user_id'))
-#     receiver_id = Column(Integer, ForeignKey('users.user_id'))
-#     recommendation_type = Column(String)
-#     recommendation_type_id = Column(Integer)
-
-#     sender = relationship("User", foreign_keys=[sender_id], back_populates="recommendations_sent")
-#     receiver = relationship("User", foreign_keys=[receiver_id], back_populates="recommendations_received")
+    recommendation_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    sender_id = Column(Integer, ForeignKey('users.user_id', name='fk_sender_id'))
+    receiver_id = Column(Integer, ForeignKey('users.user_id', name='fk_receiver_id'))
+    recommendation_type = Column(String)
+    recommendation_type_id = Column(Integer)
 
 def create_tables(engine):
     Base.metadata.create_all(bind=engine)

@@ -2,8 +2,9 @@ from fastapi import APIRouter, Depends
 from typing import Optional
 from authentication import curr_user
 from connection import db, es
-from models import Song, User, Album, Artist, Genre
+from models import Song, User, Album, Artist, Genre, Recommendation
 from sqlalchemy.orm import joinedload
+from pydantic import BaseModel
 
 user_router = APIRouter()
   
@@ -255,4 +256,17 @@ def recommend_song(user = Depends(curr_user), field: Optional[str] = None, value
         for song in recommended_songs:
             recommend_song.append(song["_source"])
         return recommend_song
+
+class share_data(BaseModel):
+    receiver_id: int
+    rd_type: str
+    rd_type_id: int
     
+@user_router.post("/share-recommendation/")
+def share_recommendation(data: share_data,user = Depends(curr_user)):
+    recommendation = (
+                Recommendation(sender_id=user, receiver_id=data.receiver_id, recommendation_type=data.rd_type, recommendation_type_id=data.rd_type_id)
+            )
+    db.add(recommendation)
+    db.commit()
+    return {"message":"recommendation shared successfuly"}

@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from models import create_tables
-from connection import create_index
+from connection import create_index,engine
 from authentication import auth_router
 from song_routes import song_router
 from user_routes import user_router
@@ -18,7 +18,7 @@ app.include_router(user_router, prefix="/users")
 app.include_router(playlist_router, prefix="/playlists")
 
 @app.get("/") #setup for all required tables in postgresql and es
-def read_root():
+def setup():
     create_index()
-    create_tables()
+    create_tables(engine)
     return {"message": "Setup done! Welcome to the music app!"}
