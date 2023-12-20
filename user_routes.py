@@ -339,7 +339,7 @@ def trending_songs( rec_size: Optional[int] = 10):
         {"recommendation_count": {"order": "desc"}}  
     ],
     "_source": {
-        "includes": ["title", "artist_name", "genre_name", "album_title"] 
+        "includes": ["title", "artist_name", "genre_name", "album_title","recommendation_count"] 
     }
 }
     re=es.search(index="songs_",body=top_songs_query)
@@ -372,8 +372,8 @@ def share_recommendation(data: share_data,user = Depends(curr_user)):
             update_song_in_es(song.song_id)
     if data.rd_type.startswith("artist"):
         artist = db.query(Artist).filter(Artist.artist_id == data.rd_type_id).first()
-        if genre:
-            songs_in_artist = db.query(Song).filter(Song.genre_id == data.rd_type_id).all()
+        if artist:
+            songs_in_artist = db.query(Song).filter(Song.artist_id == data.rd_type_id).all()
         for song in songs_in_artist:
             song.recommendation_count = song.recommendation_count + 1
             db.add(song)
@@ -382,8 +382,8 @@ def share_recommendation(data: share_data,user = Depends(curr_user)):
             update_song_in_es(song.song_id)
     if data.rd_type.startswith("album"):
         album = db.query(Album).filter(Album.album_id == data.rd_type_id).first()
-        if genre:
-            songs_in_album = db.query(Song).filter(Song.genre_id == data.rd_type_id).all()
+        if album:
+            songs_in_album = db.query(Song).filter(Song.album_id == data.rd_type_id).all()
         for song in songs_in_album:
             song.recommendation_count = song.recommendation_count + 1
             db.add(song)

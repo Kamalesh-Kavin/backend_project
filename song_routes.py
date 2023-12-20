@@ -17,7 +17,6 @@ class RateSongInput(BaseModel):
 class searchSongs(BaseModel):
     song_name: str
 
-@song_router.get("/test/")
 def update_song_in_es(song_id):
     result = es.get(index="songs_",id=song_id)
     data = result["_source"]
@@ -82,7 +81,6 @@ async def save_data_from_csv(csv_file: UploadFile = File(...)):
         df['album'].fillna("Scorpion", inplace=True)
         df['song_name'].fillna("Sacrifice", inplace=True)    
         for row in range(len(df)):
-            print(row)
             genre = (
                 db.query(Genre).filter_by(genre_name=df.iloc[row].to_dict()["genre"]).first()
             )

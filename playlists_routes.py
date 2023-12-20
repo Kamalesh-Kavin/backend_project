@@ -68,23 +68,34 @@ def create_auto_playlist(playlist_data: AutoPlaylistInput,user = Depends(curr_us
         for i in range(len(playlist_data.artist)):
             for j in range(len(playlist_data.genre)):
                 pair.append((playlist_data.artist[i],playlist_data.genre[j]))
-        for i in range(len(pair)):
+        total_results = playlist_data.size
+        queries_count = len(pair)
+        size_per_query = total_results // queries_count
+        remaining_results = total_results
+        for i, p in enumerate(pair):
+            current_size = size_per_query
+            # Adjust the size for the last query to ensure the total number of results
+            if i == queries_count - 1:
+                current_size = remaining_results
             query = {
                 "_source":"song_id",
-                "size":playlist_data.size,
+                "size":current_size,
                 "query": {
                     "bool": {
-                        "must": [{"match": {"artist_name": pair[i][0]}}, 
-                                 {"match": {"genre_name": pair[i][1]}}]
+                        "must": [{"match": {"artist_name": p[0]}}, 
+                                 {"match": {"genre_name": p[1]}}]
                     }
                 }
             }
-            search_results = es.search(index="songs_", body=query)
-            retrieved_documents = search_results["hits"]["hits"]
-            for doc in retrieved_documents:
-                if "_source" in doc and "song_id" in doc["_source"]:
-                    if doc["_source"]["song_id"] not in song_ids:
-                        song_ids.append(doc["_source"]["song_id"])
+            result = es.search(index="songs_", body=query)
+            if result.get("hits") and result["hits"].get("hits"):
+                for hit in result["hits"]["hits"]:
+                    song_ids.append(hit["_source"].get("song_id"))
+                    remaining_results -= 1  # Decrease the remaining results count
+                    if remaining_results == 0:
+                        break
+            if remaining_results == 0:
+                break 
         if len(song_ids)==0:
             return {"message":"no data for your requested artist and genre"}
         if  playlist:
@@ -142,18 +153,18 @@ def del_playlist(playlist_data: DeletePlaylist,user = Depends(curr_user)):
     try:
         playlist = (
             db.query(Playlist).filter(
-                Playlist.playlist_name == playlist_data.playlist_id,
+                Playlist.playlist_id == playlist_data.playlist_id,
                 Playlist.user_id == user).first()
         )
         if playlist:
-            playlist_name = playlist.playlist_name
+            p_name = playlist.playlist_name
             db.delete(playlist)
             db.commit()
-            db.refresh()
+            db.refresh(playlist)
             update_user_in_es(user)
-            return {"message":f"{playlist_name} deleted successfully"}
+            return {"message":f"{p_name} deleted successfully"}
         else:
-            return {"message":f"playlist {playlist_name} doesn't exist"} 
+            return {"message":f"playlist doesn't exist"} 
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to create/update the playlist: {str(e)}")
