@@ -16,21 +16,22 @@ class RateSongInput(BaseModel):
     
 class searchSongs(BaseModel):
     song_name: str
-    
+
+@song_router.get("/test/")
 def update_song_in_es(song_id):
     result = es.get(index="songs_",id=song_id)
     data = result["_source"]
+    rc= (
+        db.query(Song).filter(Song.song_id==song_id).first()
+    )
     average_rating = (
         db.query(func.avg(Rating.rating))
         .filter(Rating.song_id == data["song_id"])
         .scalar() 
     )
-    upd_doc = {
-        "doc":{
-            "rating":average_rating
-        }
-    }
-    es.update(index="songs_",id=song_id ,body=upd_doc)
+    data["recommendation_count"] = rc.recommendation_count
+    data["rating"] = average_rating
+    es.index(index="songs_",id=song_id ,body=data)
 
 def upload_data_into_es():
     songs_details = (
@@ -40,7 +41,8 @@ def upload_data_into_es():
             Artist.artist_name,
             Album.album_title,
             Genre.genre_name,
-            func.coalesce(func.avg(Rating.rating), 0).label('rating')  # Replace None with 0
+            func.coalesce(func.avg(Rating.rating), 0).label('rating'), 
+            Song.recommendation_count
         )
         .join(Artist, Artist.artist_id == Song.artist_id)
         .join(Album, Album.album_id == Song.album_id)
@@ -62,7 +64,8 @@ def upload_data_into_es():
             "artist_name": song.artist_name,
             "album_title": song.album_title,
             "genre_name": song.genre_name,
-            "rating":song.rating
+            "rating":song.rating,
+            "recommendation_count": song.recommendation_count
         }
         es.index(index="songs_", id=song.song_id,body=song_data)
     return {"message":"song data stored successfully"}

@@ -29,6 +29,7 @@ class Song(Base):
     artist_id = Column(Integer, ForeignKey('artists.artist_id'))
     album_id = Column(Integer, ForeignKey('albums.album_id'))
     genre_id = Column(Integer, ForeignKey('genres.genre_id'))
+    recommendation_count = Column(Integer, default=0)
 
 class Artist(Base):
     __tablename__ = "artists"
@@ -76,8 +77,8 @@ class Recommendation(Base):
     __tablename__ = "recommendations"
 
     recommendation_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    sender_id = Column(Integer, ForeignKey('users.user_id', name='fk_sender_id'))
-    receiver_id = Column(Integer, ForeignKey('users.user_id', name='fk_receiver_id'))
+    sender_id = Column(Integer, ForeignKey('users.user_id'))
+    receiver_id = Column(Integer)
     recommendation_type = Column(String)
     recommendation_type_id = Column(Integer)
 

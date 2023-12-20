@@ -5,6 +5,7 @@ from connection import db, es
 from models import Song, User, Album, Artist, Genre, Recommendation
 from sqlalchemy.orm import joinedload
 from pydantic import BaseModel
+from song_routes import update_song_in_es
 
 user_router = APIRouter()
   
@@ -105,7 +106,7 @@ def search_user_details(user = Depends(curr_user)):
     return retrieved_doc
     
 @user_router.get("/recommend-songs/")
-def recommend_song(user = Depends(curr_user), field: Optional[str] = None, value: Optional[str] = None):
+def recommend_song(user = Depends(curr_user), field: Optional[str] = None, value: Optional[str] = None, rec_size: Optional[int] = 10):
     user_playlists_query = {
         "query": {
             "match": {"user_id": user}  
@@ -113,10 +114,11 @@ def recommend_song(user = Depends(curr_user), field: Optional[str] = None, value
     }
     recommended_songs = []
     user_playlists = es.search(index="users_", body=user_playlists_query)["hits"]["hits"]
-    if len(user_playlists)!=0:
+    if len(user_playlists[0]["_source"]["playlists"])!=0:
         user_playlists = user_playlists[0]["_source"]["playlists"]
         songs_in_user_playlists = []
         artist_names=[]
+        genre_names=[]
         for song_detail in user_playlists:
             songs_info=song_detail["songs"]
             for song in songs_info:
@@ -129,8 +131,8 @@ def recommend_song(user = Depends(curr_user), field: Optional[str] = None, value
                     songs_in_user_playlists.append({
                             "_id":song["song_id"]
                         })
-                if song["artist_name"] not in artist_names:
-                    artist_names.append(song["artist_name"]) 
+                artist_names.append(song["artist_name"])
+                genre_names.append(song["genre_name"])  
         if len(songs_in_user_playlists)==0:
             return {"message":"no songs to recommend from"}
         mlt_query= {
@@ -156,7 +158,7 @@ def recommend_song(user = Depends(curr_user), field: Optional[str] = None, value
                     "aggs": {
                         "top_songs": {
                             "top_hits": {
-                                "size": 5,
+                                "size": rec_size/len(artist_names),
                                 "_source": {
                                     "includes": ["title", "song_id", "genre_name", "artist_name", "album_title", "rating"]
                                 }
@@ -168,8 +170,14 @@ def recommend_song(user = Depends(curr_user), field: Optional[str] = None, value
         }
         filters = mlt_query["aggs"]["specific_artists"]["filters"]["filters"]
         for index, artist in enumerate(artist_names, start=1):
-            filters[f"artist_{index}"] = {"term": {"artist_name.keyword": artist}}
-            print(index, artist)
+            filters[f"artist_{index}"] = {
+                "bool": {
+                    "filter": [
+                        {"term": {"artist_name.keyword": artist}},
+                        {"term": {"genre_name.keyword": genre_names[index - 1]}}
+                    ]
+                }
+            }
         result = es.search(index='songs_', body=mlt_query)
         artist_data = result["aggregations"]["specific_artists"]["buckets"]
         for artist in artist_data:
@@ -185,43 +193,34 @@ def recommend_song(user = Depends(curr_user), field: Optional[str] = None, value
         return recommended_songs
     
     else: #for users who have no pre-existing playlists - general songs
-        aggregation_query = {
-            "size": 0, 
+        combined_query={
+            "size": 0,
             "aggs": {
                 "genres_count": {
                     "terms": {
-                        "field": "genre_name.keyword", 
-                        "size": 30 , #max number of genres available
-                        "min_doc_count": 501 #min no. of songs required
+                        "field": "genre_name.keyword",
+                        "size": 10
+                    }
+                },
+                "artists_list": {
+                    "terms": {
+                        "field": "artist_name.keyword",
+                        "size": 10
                     }
                 }
             }
         }
+        re = es.search(index="songs_", body=combined_query)
+        genre_data = re["aggregations"]["genres_count"]["buckets"]
+        artist_data = re["aggregations"]["artists_list"]["buckets"]
         genre_names=[]
-        result = es.search(index="songs_", body=aggregation_query)
-        if result.get("aggregations") and result["aggregations"].get("genres_count"):
-            genre_buckets = result["aggregations"]["genres_count"]["buckets"]
-            for bucket in genre_buckets:
-                #genre_name = bucket["key"] it has genre_names
-                genre_names.append(bucket["key"])
-                #song_count = bucket["doc_count"] it has song_count
-                
-        rating_query = {
-            "query": {
-                "range": {
-                    "rating": {
-                        "gt": 3  
-                    }
-                }
-            }
-        }
         artist_names=[]
-        results = es.search(index="songs_", body=rating_query)
-        if results.get("hits") and results["hits"].get("hits"):
-            for hit in results["hits"]["hits"]:
-                artist_names.append(hit["_source"]["artist_name"])
+        for i in genre_data:
+            genre_names.append(i["key"])
+        for i in artist_data:
+            artist_names.append(i["key"])
         query={
-            "size": 30, 
+            "size": rec_size, 
             "query": {
                 "function_score": {
                     "functions": [
@@ -257,6 +256,100 @@ def recommend_song(user = Depends(curr_user), field: Optional[str] = None, value
             recommend_song.append(song["_source"])
         return recommend_song
 
+@user_router.get("/top_rated_songs/")
+def top_rated_songs( rec_size: Optional[int] = 10):
+    rating_query = {
+        "size": 0,
+        "aggs": {
+            "genres": {
+                "terms": {
+                    "field": "genre_name.keyword",
+                    "size": rec_size  
+                },
+                "aggs": {
+                    "top_hits_per_genre": {
+                        "top_hits": {
+                            "size": 2,
+                            "sort": [
+                                {
+                                "rating": {
+                                    "order": "desc"
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    }
+    re=es.search(index="songs_",body=rating_query)
+    rec_songs=[]
+    songs_data=re["aggregations"]["genres"]["buckets"]
+    for i in songs_data:
+        for song in i["top_hits_per_genre"]["hits"]["hits"]:
+            if song["_source"] not in rec_songs:
+                rec_songs.append(song["_source"])
+    return rec_songs
+
+@user_router.get("/top_recommended_songs/")
+def top_recommended_songs( rec_size: Optional[int] = 10):
+    rating_query = {
+        "size": 0,
+        "aggs": {
+            "genres": {
+                "terms": {
+                    "field": "genre_name.keyword",
+                    "size": rec_size  
+                },
+                "aggs": {
+                    "top_hits_per_genre": {
+                        "top_hits": {
+                            "size": 2,
+                            "sort": [
+                                {
+                                "recommendation_count": {
+                                    "order": "desc"
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    }
+    re=es.search(index="songs_",body=rating_query)
+    rec_songs=[]
+    songs_data=re["aggregations"]["genres"]["buckets"]
+    for i in songs_data:
+        for song in i["top_hits_per_genre"]["hits"]["hits"]:
+            if song["_source"] not in rec_songs:
+                rec_songs.append(song["_source"])
+    return rec_songs
+
+@user_router.get("/trending_songs/")
+def trending_songs( rec_size: Optional[int] = 10):
+    top_songs_query = {
+    "size": rec_size, 
+    "query": {
+        "match_all": {} 
+    },
+    "sort": [
+        {"recommendation_count": {"order": "desc"}}  
+    ],
+    "_source": {
+        "includes": ["title", "artist_name", "genre_name", "album_title"] 
+    }
+}
+    re=es.search(index="songs_",body=top_songs_query)
+    songs_data= re["hits"]["hits"]
+    rec_songs=[]
+    for song in songs_data:
+        if song["_source"] not in rec_songs:
+            rec_songs.append(song["_source"])
+    return rec_songs
+
 class share_data(BaseModel):
     receiver_id: int
     rd_type: str
@@ -267,6 +360,43 @@ def share_recommendation(data: share_data,user = Depends(curr_user)):
     recommendation = (
                 Recommendation(sender_id=user, receiver_id=data.receiver_id, recommendation_type=data.rd_type, recommendation_type_id=data.rd_type_id)
             )
+    if data.rd_type.startswith("genre"):
+        genre = db.query(Genre).filter(Genre.genre_id == data.rd_type_id).first()
+        if genre:
+            songs_in_genre = db.query(Song).filter(Song.genre_id == data.rd_type_id).all()
+        for song in songs_in_genre:
+            song.recommendation_count = song.recommendation_count + 1
+            db.add(song)
+            db.commit()
+            db.refresh(song)
+            update_song_in_es(song.song_id)
+    if data.rd_type.startswith("artist"):
+        artist = db.query(Artist).filter(Artist.artist_id == data.rd_type_id).first()
+        if genre:
+            songs_in_artist = db.query(Song).filter(Song.genre_id == data.rd_type_id).all()
+        for song in songs_in_artist:
+            song.recommendation_count = song.recommendation_count + 1
+            db.add(song)
+            db.commit()
+            db.refresh(song)
+            update_song_in_es(song.song_id)
+    if data.rd_type.startswith("album"):
+        album = db.query(Album).filter(Album.album_id == data.rd_type_id).first()
+        if genre:
+            songs_in_album = db.query(Song).filter(Song.genre_id == data.rd_type_id).all()
+        for song in songs_in_album:
+            song.recommendation_count = song.recommendation_count + 1
+            db.add(song)
+            db.commit()
+            db.refresh(song)
+            update_song_in_es(song.song_id)
+    if data.rd_type.startswith("song"):
+        song = db.query(Song).filter(Song.song_id == data.rd_type_id).first()
+        song.recommendation_count = song.recommendation_count + 1
+        db.add(song)
+        db.commit()
+        db.refresh(song)
+        update_song_in_es(song.song_id)
     db.add(recommendation)
     db.commit()
     return {"message":"recommendation shared successfuly"}
