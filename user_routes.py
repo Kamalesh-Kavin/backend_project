@@ -182,7 +182,6 @@ def recommend_song(user = Depends(curr_user), field: Optional[str] = None, value
                     ]
                 }
             }
-        # return mlt_query
         result = es.search(index='songs_', body=mlt_query)
         artist_data = result["aggregations"]["specific_artists"]["buckets"]
         for artist in artist_data:
@@ -204,7 +203,7 @@ def recommend_song(user = Depends(curr_user), field: Optional[str] = None, value
                 "genres_count": {
                     "terms": {
                         "field": "genre_name.keyword",
-                        "size": 10
+                        "min_doc_count": 10
                     }
                 },
                 "artists_list": {
@@ -258,7 +257,13 @@ def recommend_song(user = Depends(curr_user), field: Optional[str] = None, value
         recommended_songs = search_res["hits"]["hits"]
         recommend_song = []
         for song in recommended_songs:
-            recommend_song.append(song["_source"])
+            if song["_source"][field]==value:
+                if field is not None and value is not None:
+                    if song["_source"] not in recommended_songs:
+                        recommend_song.append(song["_source"])
+                else:
+                    if song["_source"] not in recommended_songs:
+                        recommend_song.append(song["_source"])
         return recommend_song
 
 @user_router.get("/top_rated_songs/")
