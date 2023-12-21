@@ -143,7 +143,7 @@ def edit_playlist(playlist_data: EditPlaylistInput,user = Depends(curr_user)):
             update_user_in_es(user)
             return {"message":f"Playlist '{playlist.playlist_name} edited successfully"}
         else:
-            return {"message":f"Playlist '{playlist.playlist_name} does not exist"}
+            return {"message":f"Playlist does not exist under given user"}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to create/update the playlist: {str(e)}")

@@ -93,7 +93,7 @@ def upload_data_into_es():
     return {"message":"user data stored successfully"}
 
 @user_router.get("/user-details/")
-def search_user_details(user = Depends(curr_user)):
+def get_user_details(user = Depends(curr_user)):
     upload_data_into_es()
     query = {
         "query": {
@@ -113,38 +113,42 @@ def recommend_song(user = Depends(curr_user), field: Optional[str] = None, value
             }
     }
     recommended_songs = []
-    user_playlists = es.search(index="users_", body=user_playlists_query)["hits"]["hits"]
-    if len(user_playlists[0]["_source"]["playlists"])!=0:
-        user_playlists = user_playlists[0]["_source"]["playlists"]
+    user_playlists = es.search(index="users_", body=user_playlists_query)["hits"]["hits"][0]["_source"]["playlists"]
+    if len(user_playlists)!=0:
         songs_in_user_playlists = []
-        artist_names=[]
-        genre_names=[]
+        artist_genre_pairs=[]
         for song_detail in user_playlists:
             songs_info=song_detail["songs"]
             for song in songs_info:
+                artist_name=song["artist_name"]
+                genre_name=song["genre_name"]
+                pair=(artist_name,genre_name)
                 if field is not None and value is not None:
                     if song[field]==value:
                         songs_in_user_playlists.append({
                             "_id":song["song_id"]
                         })
+                        if pair not in artist_genre_pairs:
+                            artist_genre_pairs.append(pair)
                 else:
                     songs_in_user_playlists.append({
                             "_id":song["song_id"]
                         })
-                artist_names.append(song["artist_name"])
-                genre_names.append(song["genre_name"])  
+                    if pair not in artist_genre_pairs:
+                            artist_genre_pairs.append(pair)
         if len(songs_in_user_playlists)==0:
             return {"message":"no songs to recommend from"}
+        size_query=rec_size//len(artist_genre_pairs)
         mlt_query= {
-            "size": 0,
+            "size": 50,
             "query": {
                 "bool": {
                     "must": {
                         "more_like_this": {
-                            "fields": ["genre_name", "artist_name", "album_name"],
+                            "fields": ["artist_name"],
                             "like": songs_in_user_playlists,
                             "min_term_freq": 1,
-                            "max_query_terms": 1,
+                            "max_query_terms": 6,
                             "min_doc_freq": 1
                         }
                     }
@@ -158,7 +162,7 @@ def recommend_song(user = Depends(curr_user), field: Optional[str] = None, value
                     "aggs": {
                         "top_songs": {
                             "top_hits": {
-                                "size": rec_size/len(artist_names),
+                                "size": size_query,
                                 "_source": {
                                     "includes": ["title", "song_id", "genre_name", "artist_name", "album_title", "rating"]
                                 }
@@ -169,15 +173,16 @@ def recommend_song(user = Depends(curr_user), field: Optional[str] = None, value
             }
         }
         filters = mlt_query["aggs"]["specific_artists"]["filters"]["filters"]
-        for index, artist in enumerate(artist_names, start=1):
-            filters[f"artist_{index}"] = {
+        for index, artist in enumerate(artist_genre_pairs):
+            filters[f"artist_{index+1}"] = {
                 "bool": {
                     "filter": [
-                        {"term": {"artist_name.keyword": artist}},
-                        {"term": {"genre_name.keyword": genre_names[index - 1]}}
+                        {"term": {"artist_name.keyword": artist[0]}},
+                        {"term": {"genre_name.keyword": artist[1]}}
                     ]
                 }
             }
+        # return mlt_query
         result = es.search(index='songs_', body=mlt_query)
         artist_data = result["aggregations"]["specific_artists"]["buckets"]
         for artist in artist_data:
