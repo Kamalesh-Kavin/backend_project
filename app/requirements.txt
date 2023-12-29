@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+elasticsearch
+pydantic
+sqlalchemy
+passlib  
+PyJWT 
+pandas 
+psycopg2-binary
+python-multipart
+python-dotenv

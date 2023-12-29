@@ -1,0 +1,25 @@
+version: '3.9'
+
+services:
+  fastapi:
+    build: .
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres-db
+
+  postgres-db:
+    image: postgres:latest
+    container_name: postgresql
+    volumes:
+      - ./dump_file.sql:/docker-entrypoint-initdb.d/dump_file.sql
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: music_appln
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: root
+    ports:
+      - "5432:5432"
+
+volumes:
+  pgdata:
