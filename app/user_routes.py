@@ -364,7 +364,63 @@ class share_data(BaseModel):
     receiver_id: int
     rd_type: str
     rd_type_id: int
-    
+
+# import random
+# @user_router.post("/random-share-recommendation/")
+# def test():
+#     a=200
+#     while(a!=0):
+#         user_to_array = [1,5,6]
+#         user_from_array = [2,3,4]
+#         type_start=["genre","artist","album","song"]
+#         rd_to=random.choice(user_to_array)
+#         rd_from=random.choice(user_from_array)
+#         rd_type=random.choice(type_start)
+#         rd_type_id = random.randint(1, 31)
+#         recommendation = (
+#                     Recommendation(sender_id=rd_from, receiver_id=rd_to, recommendation_type=rd_type, recommendation_type_id=rd_type_id)
+#                 )
+#         if rd_type.startswith("genre"):
+#             genre = db.query(Genre).filter(Genre.genre_id == rd_type_id).first()
+#             if genre:
+#                 songs_in_genre = db.query(Song).filter(Song.genre_id == rd_type_id).all()
+#             for song in songs_in_genre:
+#                 song.recommendation_count = song.recommendation_count + 1
+#                 db.add(song)
+#                 db.commit()
+#                 db.refresh(song)
+#                 update_song_in_es(song.song_id)
+#         if rd_type.startswith("artist"):
+#             artist = db.query(Artist).filter(Artist.artist_id == rd_type_id).first()
+#             if artist:
+#                 songs_in_artist = db.query(Song).filter(Song.artist_id == rd_type_id).all()
+#             for song in songs_in_artist:
+#                 song.recommendation_count = song.recommendation_count + 1
+#                 db.add(song)
+#                 db.commit()
+#                 db.refresh(song)
+#                 update_song_in_es(song.song_id)
+#         if rd_type.startswith("album"):
+#             album = db.query(Album).filter(Album.album_id == rd_type_id).first()
+#             if album:
+#                 songs_in_album = db.query(Song).filter(Song.album_id == rd_type_id).all()
+#             for song in songs_in_album:
+#                 song.recommendation_count = song.recommendation_count + 1
+#                 db.add(song)
+#                 db.commit()
+#                 db.refresh(song)
+#                 update_song_in_es(song.song_id)
+#         if rd_type.startswith("song"):
+#             song = db.query(Song).filter(Song.song_id == rd_type_id).first()
+#             song.recommendation_count = song.recommendation_count + 1
+#             db.add(song)
+#             db.commit()
+#             db.refresh(song)
+#             update_song_in_es(song.song_id)
+#         db.add(recommendation)
+#         db.commit()
+#         a-=1
+                
 @user_router.post("/share-recommendation/")
 def share_recommendation(data: share_data,user = Depends(curr_user)):
     recommendation = (

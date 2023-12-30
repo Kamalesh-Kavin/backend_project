@@ -17,8 +17,9 @@ app.include_router(song_router, prefix="/songs")
 app.include_router(user_router, prefix="/users")
 app.include_router(playlist_router, prefix="/playlists")
 
+create_index()
+create_tables(engine)
+
 @app.get("/") #setup for all required tables in postgresql and es
 def setup():
-    create_index()
-    create_tables(engine)
     return {"message": "Setup done! Welcome to the music app!"}

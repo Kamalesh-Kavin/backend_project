@@ -129,29 +129,29 @@ async def save_data_from_csv(csv_file: UploadFile = File(...)):
 # import random
 # @song_router.post("/random-rating/")
 # def random_rating():
-#     user_array = [3001,3008,3010,3007]
+#     user_array = [1,3,5,6]
 #     song=db.query(Song).all()
 #     for i in song:
 #         test(i.song_id,random.choice(user_array))
 # def test(song_id,user_id):
-    # try:
-    #     rating = (
-    #         db.query(Rating).filter(
-    #         Rating.user_id == user_id,
-    #         Rating.song_id == song_id).first()
-    #     )
-    #     random_float = random.uniform(3.0, 5.0)
-    #     if rating:
-    #         rating.rating = random_float
-    #     if not rating:
-    #         rating = Rating(user_id=user_id, song_id=song_id, rating=random_float)
-    #         db.add(rating)
-    #     db.commit()
-    #     update_song_in_es(song_id)
-    #     return {"message":"rating done successfully"}
-    # except Exception as e:
-    #     db.rollback()
-    #     raise HTTPException(status_code=500, detail=f"Failed to rate the song: {str(e)}")
+#     try:
+#         rating = (
+#             db.query(Rating).filter(
+#             Rating.user_id == user_id,
+#             Rating.song_id == song_id).first()
+#         )
+#         random_float = round(random.uniform(3.0, 5.0), 1)
+#         if rating:
+#             rating.rating = random_float
+#         if not rating:
+#             rating = Rating(user_id=user_id, song_id=song_id, rating=random_float)
+#             db.add(rating)
+#         db.commit()
+#         update_song_in_es(song_id)
+#         return {"message":"rating done successfully"}
+#     except Exception as e:
+#         db.rollback()
+#         raise HTTPException(status_code=500, detail=f"Failed to rate the song: {str(e)}")
     
 @song_router.post("/rate-song/")
 def rate_song(song_data: RateSongInput,user = Depends(curr_user)):

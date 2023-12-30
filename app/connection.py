@@ -11,7 +11,7 @@ db = SessionLocal()
 
 #ES connectivity
 ELASTICSEARCH_URL = "https://localhost:9200"
-es = Elasticsearch(hosts=ELASTICSEARCH_URL,basic_auth=("elastic", "1_W28jlMre-sx005bcoB"), verify_certs=False)
+es = Elasticsearch(hosts=ELASTICSEARCH_URL,basic_auth=("elastic", "xBiSrG0ZZg0Mw5V5EeNo"), verify_certs=False)
 
 def create_index():
     INDEX_NAMES = ["users_","songs_"]
