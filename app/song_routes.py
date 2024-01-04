@@ -174,7 +174,7 @@ def rate_song(song_data: RateSongInput,user = Depends(curr_user)):
         raise HTTPException(status_code=500, detail=f"Failed to rate the song: {str(e)}")
 
 @song_router.get("/search-song/")
-def search_song(song_data: searchSongs,field: Optional[str] = None, value: Optional[str] = None):
+def search_song(song_name: str,field: Optional[str] = None, value: Optional[str] = None):
     query = {
         "query": {
             "bool": {
@@ -182,7 +182,7 @@ def search_song(song_data: searchSongs,field: Optional[str] = None, value: Optio
                     {
                         "match": {
                             "title": {
-                                "query": song_data.song_name,
+                                "query": song_name,
                                 "fuzziness": "AUTO"
                             }
                         }

@@ -1,9 +1,10 @@
-fastapi==0.104.1  # FastAPI framework
-uvicorn==0.24.0  # ASGI server for FastAPI
-elasticsearch==8.11.1  # Elasticsearch Python client
-pydantic==2.5.2  # Pydantic for data validation
-sqlalchemy==2.0.23  # SQL toolkit and ORM for database interaction (used in connection.py)
-passlib==1.7.4  # Password hashing library (used for pwd_context)
-PyJWT==2.8.0 
-pandas==2.1.4   
+fastapi==0.104.1  
+uvicorn==0.24.0 
+elasticsearch==8.11.1  
+pydantic==2.5.2 
+sqlalchemy==2.0.23  
+passlib==1.7.4  
+PyJWT
+pandas
 python-multipart==0.0.6
+psycopg2-binary
