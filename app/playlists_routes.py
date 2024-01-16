@@ -3,9 +3,10 @@ from models import Playlist, Song
 from connection import db, es
 from authentication import curr_user
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 from user_routes import upload_data_into_es,update_user_in_es
 from enum import Enum
+
 
 playlist_router = APIRouter()
 
@@ -15,8 +16,8 @@ class CreatePlaylistInput(BaseModel):
     
 class AutoPlaylistInput(BaseModel):
     playlist_name: str
-    artist: List[str]  
-    genre: List[str]
+    artists: List[str]
+    genres: List[str]
     size: int
     
 class ActionType(str, Enum):
@@ -65,37 +66,76 @@ def create_auto_playlist(playlist_data: AutoPlaylistInput,user = Depends(curr_us
         )
         pair=[]
         song_ids=[]
-        for i in range(len(playlist_data.artist)):
-            for j in range(len(playlist_data.genre)):
-                pair.append((playlist_data.artist[i],playlist_data.genre[j]))
-        total_results = playlist_data.size
-        queries_count = len(pair)
-        size_per_query = total_results // queries_count
-        remaining_results = total_results
-        for i, p in enumerate(pair):
-            current_size = size_per_query
-            # Adjust the size for the last query to ensure the total number of results
-            if i == queries_count - 1:
-                current_size = remaining_results
-            query = {
-                "_source":"song_id",
-                "size":current_size,
-                "query": {
-                    "bool": {
-                        "must": [{"match": {"artist_name": p[0]}}, 
-                                 {"match": {"genre_name": p[1]}}]
+        artist_count = len(playlist_data.artists)
+        genre_count = len(playlist_data.genres)
+        if artist_count and genre_count:
+            for i in range(artist_count):
+                for j in range(genre_count):
+                    pair.append((playlist_data.artists[i],playlist_data.genres[j]))
+            total_results = playlist_data.size
+            queries_count = len(pair)
+            size_per_query = total_results // queries_count
+            remaining_results = total_results
+            for i, p in enumerate(pair):
+                current_size = size_per_query
+                if i == queries_count - 1:
+                    current_size = remaining_results
+                query = {
+                    "_source":"song_id",
+                    "size":current_size,
+                    "query": {
+                        "bool": {
+                            "must": [{"match": {"artist_name": p[0]}}, 
+                                    {"match": {"genre_name": p[1]}}]
+                        }
                     }
                 }
+                result = es.search(index="songs_", body=query)
+                if result.get("hits") and result["hits"].get("hits"):
+                    for hit in result["hits"]["hits"]:
+                        song_ids.append(hit["_source"].get("song_id"))
+                        remaining_results -= 1  #
+                        if remaining_results == 0:
+                            break
+                if remaining_results == 0:
+                    break
+        elif artist_count:
+            query = {
+                "size":playlist_data.size,
+                "query": {
+                    "terms": {
+                        "artist_name": playlist_data.artists
+                        }  
+                    }
             }
             result = es.search(index="songs_", body=query)
-            if result.get("hits") and result["hits"].get("hits"):
-                for hit in result["hits"]["hits"]:
-                    song_ids.append(hit["_source"].get("song_id"))
-                    remaining_results -= 1  # Decrease the remaining results count
-                    if remaining_results == 0:
-                        break
-            if remaining_results == 0:
-                break 
+            for hit in result["hits"]["hits"]:
+                song_ids.append(hit["_source"].get("song_id"))
+        elif genre_count:
+            query = {
+                "size":playlist_data.size,
+                "query": {
+                    "terms": {
+                        "genre_name": playlist_data.genres
+                        }  
+                    }
+            }
+            result = es.search(index="songs_", body=query)
+            for hit in result["hits"]["hits"]:
+                song_ids.append(hit["_source"].get("song_id"))
+        else:
+            query = {
+                "size": playlist_data.size, 
+                "query": {
+                    "match_all": {} 
+                },
+                "sort": [
+                    {"recommendation_count": {"order": "desc"}}  
+                ]
+            }
+            result = es.search(index="songs_", body=query)
+            for hit in result["hits"]["hits"]:
+                song_ids.append(hit["_source"].get("song_id"))
         if len(song_ids)==0:
             return {"message":"no data for your requested artist and genre"}
         if  playlist:

@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: m3
-        image: kamaleshsomasundaram/final_try:v20.0
+        image: kamaleshsomasundaram/final_try:v25.0 #v20.0 is without testing functions
         ports:
         - containerPort: 80
         env:

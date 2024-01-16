@@ -6,6 +6,7 @@ from fastapi.security import OAuth2PasswordBearer
 import jwt
 from jwt import PyJWTError
 from datetime import datetime, timedelta
+from sqlalchemy import or_
 
 auth_router = APIRouter()
 
@@ -26,7 +27,8 @@ class UserCreate(BaseModel):
 @auth_router.post("/register/")
 def register_user(user: UserCreate):
     hashed_password = pwd_context.hash(user.password)
-    db_user = db.query(User).filter(User.username == user.username,User.email == user.email).first()
+    db_user = db.query(User).filter(or_(User.username == user.username, User.email == user.email)).first()
+
     if db_user:
         raise HTTPException(status_code=400, detail="Username already registered")
     new_user = User(username=user.username, password=hashed_password,email=user.email)

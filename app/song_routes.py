@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from authentication import curr_user
 from typing import Optional
 from sqlalchemy import func
+import random
 #import boto3
 
 song_router = APIRouter()
@@ -126,33 +127,35 @@ async def save_data_from_csv(csv_file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save data from CSV: {str(e)}")
 
-# import random
-# @song_router.post("/random-rating/")
-# def random_rating():
-#     user_array = [1,3,5,6]
-#     song=db.query(Song).all()
-#     for i in song:
-#         test(i.song_id,random.choice(user_array))
-# def test(song_id,user_id):
-#     try:
-#         rating = (
-#             db.query(Rating).filter(
-#             Rating.user_id == user_id,
-#             Rating.song_id == song_id).first()
-#         )
-#         random_float = round(random.uniform(3.0, 5.0), 1)
-#         if rating:
-#             rating.rating = random_float
-#         if not rating:
-#             rating = Rating(user_id=user_id, song_id=song_id, rating=random_float)
-#             db.add(rating)
-#         db.commit()
-#         update_song_in_es(song_id)
-#         return {"message":"rating done successfully"}
-#     except Exception as e:
-#         db.rollback()
-#         raise HTTPException(status_code=500, detail=f"Failed to rate the song: {str(e)}")
+#for testing only
+def test(song_id,user_id):
+    try:
+        rating = (
+            db.query(Rating).filter(
+            Rating.user_id == user_id,
+            Rating.song_id == song_id).first()
+        )
+        random_float = round(random.uniform(3.0, 5.0), 1)
+        if rating:
+            rating.rating = random_float
+        if not rating:
+            rating = Rating(user_id=user_id, song_id=song_id, rating=random_float)
+            db.add(rating)
+        db.commit()
+        update_song_in_es(song_id)
+        return {"message":"rating done successfully"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to rate the song: {str(e)}")
     
+@song_router.post("/random-rating/")
+def random_rating():
+    user_array = [1,3,5,6]
+    song=db.query(Song).all()
+    for i in song:
+        test(i.song_id,random.choice(user_array))
+    return {"message":"random rating done successfully"}
+
 @song_router.post("/rate-song/")
 def rate_song(song_data: RateSongInput,user = Depends(curr_user)):
     try:
@@ -201,3 +204,88 @@ def search_song(song_name: str,field: Optional[str] = None, value: Optional[str]
         else:
             res.append(doc["_source"])
     return res
+
+@song_router.get("/top_rated_songs/")
+def top_rated_songs( rec_size: Optional[int] = 10):
+    rating_query = {
+        "size": rec_size, 
+        "query": {
+            "match_all": {} 
+        },
+        "sort": [
+            {"rating": {"order": "desc"}}  
+        ],
+        "_source": {
+            "includes": ["title", "artist_name", "genre_name", "album_title","rating"] 
+        }
+    }
+    re=es.search(index="songs_",body=rating_query)
+    songs_data= re["hits"]["hits"]
+    rec_songs=[]
+    for song in songs_data:
+        if song["_source"] not in rec_songs:
+            rec_songs.append(song["_source"])
+    return rec_songs
+
+@song_router.get("/top_recommended_songs/")
+def top_recommended_songs( rec_size: Optional[int] = 10):
+    rating_query = {
+        "size": 0,
+        "aggs": {
+            "genres": {
+                "terms": {
+                    "field": "genre_name.keyword",
+                    "size": rec_size  
+                },
+                "aggs": {
+                    "top_hits_per_genre": {
+                        "top_hits": {
+                            "size": 2,
+                            "sort": [
+                                {
+                                "recommendation_count": {
+                                    "order": "desc"
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    }
+    re=es.search(index="songs_",body=rating_query)
+    rec_songs=[]
+    songs_data=re["aggregations"]["genres"]["buckets"]
+    for i in songs_data:
+        for song in i["top_hits_per_genre"]["hits"]["hits"]:
+            if song["_source"] not in rec_songs:
+                rec_songs.append(song["_source"])
+    return rec_songs
+
+@song_router.get("/trending_songs/")
+def trending_songs( rec_size: Optional[int] = 10):
+    top_songs_query = {
+    "size": rec_size, 
+    "query": {
+        "match_all": {} 
+    },
+    "sort": [
+        {"recommendation_count": {"order": "desc"}}  
+    ],
+    "_source": {
+        "includes": ["title", "artist_name", "genre_name", "album_title","recommendation_count"] 
+    }
+}
+    re=es.search(index="songs_",body=top_songs_query)
+    songs_data= re["hits"]["hits"]
+    rec_songs=[]
+    for song in songs_data:
+        if song["_source"] not in rec_songs:
+            rec_songs.append(song["_source"])
+    return rec_songs
+
+class share_data(BaseModel):
+    receiver_id: int
+    rd_type: str
+    rd_type_id: int
